@@ -118,7 +118,7 @@ class GaussianMixture(
 
         self.batch_size = batch_size
 
-    def fit(self, data: TensorLike) -> GaussianMixture:
+    def fit(self, loader: DataLoader) -> GaussianMixture:
         """
         Fits the Gaussian mixture on the provided data, estimating component priors, means and
         covariances. Parameters are estimated using the EM algorithm.
@@ -131,16 +131,16 @@ class GaussianMixture(
         -------
             The fitted Gaussian mixture.
         """
-        if (data.dtype in [torch.float64, np.float64]) and (self.trainer_params.get("precision", 32) == 32):
-            raise ValueError(
-                "Data is of type float64. Transform it to float32 or use trainer_params={'precision': 64}."
-            )
-
         logging_level = logging.getLogger("lightning.pytorch").getEffectiveLevel()
         logging.getLogger("lightning.pytorch").setLevel(logging.ERROR)
 
         # Initialize the model
-        num_features = len(data[0])
+        data_sample = next(iter(loader))
+        if (data_sample.dtype in [torch.float64, np.float64]) and (self.trainer_params.get("precision", 32) == 32):
+            raise ValueError(
+                "Data is of type float64. Transform it to float32 or use trainer_params={'precision': 64}."
+            )
+        num_features = len(data_sample[0])
         config = GaussianMixtureModelConfig(
             num_components=self.num_components,
             num_features=num_features,
@@ -149,11 +149,6 @@ class GaussianMixture(
         self.model_ = GaussianMixtureModel(config)
 
         # Setup the data loading
-        loader = DataLoader(
-            dataset_from_tensors(data),
-            batch_size=self.batch_size or len(data),
-            collate_fn=collate_tensor,
-        )
         is_batch_training = self._num_batches_per_epoch(loader) == 1
 
         # Run k-means if required or copy means
@@ -169,7 +164,7 @@ class GaussianMixture(
                 self.num_components,
                 batch_size=self.batch_size,
                 trainer_params=params,
-            ).fit(data)
+            ).fit(loader)
             self.model_.means.copy_(estimator.model_.centroids)
 
         # Run initialization

@@ -93,7 +93,7 @@ class KMeans(
         self.init_strategy = init_strategy
         self.convergence_tolerance = convergence_tolerance
 
-    def fit(self, data: TensorLike) -> KMeans:
+    def fit(self, loader: DataLoader) -> KMeans:
         """
         Fits the KMeans model on the provided data by running Lloyd's algorithm.
 
@@ -105,12 +105,14 @@ class KMeans(
         -------
             The fitted KMeans model.
         """
-        if (data.dtype in [torch.float64, np.float64]) and (self.trainer_params.get("precision", 32) == 32):
+
+        # Initialize model
+        data_sample = next(iter(loader))
+        if (data_sample.dtype in [torch.float64, np.float64]) and (self.trainer_params.get("precision", 32) == 32):
             raise ValueError(
                 "Data is of type float64. Transform it to float32 or use trainer_params={'precision': 64}."
             )
-        # Initialize model
-        num_features = len(data[0])
+        num_features = len(data_sample[0])
         config = KMeansModelConfig(
             num_clusters=self.num_clusters,
             num_features=num_features,
@@ -118,11 +120,6 @@ class KMeans(
         self.model_ = KMeansModel(config)
 
         # Setup the data loading
-        loader = DataLoader(
-            dataset_from_tensors(data),
-            batch_size=self.batch_size or len(data),
-            collate_fn=collate_tensor,
-        )
         is_batch_training = self._num_batches_per_epoch(loader) > 1
 
         # First, initialize the centroids
