@@ -156,7 +156,7 @@ class GaussianMixture(
             self.model_.means.copy_(self.init_means)
         elif self.init_strategy in ("kmeans", "kmeans++"):
             params = self.trainer_params_user
-            params = {**(params or {}), **{"enable_progress_bar": False}}
+            # params = {**(params or {}), **{"enable_progress_bar": False}}
             if self.init_strategy == "kmeans++":
                 params = {**(params or {}), **{"max_epochs": 0}}
 
