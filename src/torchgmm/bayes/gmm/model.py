@@ -90,7 +90,9 @@ class GaussianMixtureModel(Configurable[GaussianMixtureModelConfig], nn.Module):
         if self.covariance_type in ("full", "tied"):
             self.precisions_cholesky.tril_()
 
-    def forward(self, data: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, data: torch.Tensor, detach_params: bool = False
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Computes the log-probability of observing each of the provided datapoints for each of the
         GMM's components.
@@ -98,6 +100,9 @@ class GaussianMixtureModel(Configurable[GaussianMixtureModelConfig], nn.Module):
         Args:
             data: A tensor of shape ``[num_datapoints, num_features]`` for which to compute the
                 log-probabilities.
+            detach_params: If True, the model parameters (means, covariances, etc.) are detached
+                from the computation graph. This is useful when using the GMM as a fixed scoring
+                function where gradients are not needed for the GMM's own parameters.
 
         Returns
         -------
@@ -106,8 +111,18 @@ class GaussianMixtureModel(Configurable[GaussianMixtureModelConfig], nn.Module):
               distribution over the parameters.
             - A tensor of shape ``[num_datapoints]`` with the log-likelihood of each datapoint.
         """
-        log_probabilities = jit_log_normal(data, self.means, self.precisions_cholesky, self.covariance_type)
-        log_responsibilities = log_probabilities + self.component_probs.log()
+        means = self.means
+        precisions_cholesky = self.precisions_cholesky
+        component_probs = self.component_probs
+        if detach_params:
+            means = means.detach()
+            precisions_cholesky = precisions_cholesky.detach()
+            component_probs = component_probs.detach()
+
+        log_probabilities = jit_log_normal(
+            data, means, precisions_cholesky, self.covariance_type
+        )
+        log_responsibilities = log_probabilities + component_probs.log()
         log_prob = log_responsibilities.logsumexp(1, keepdim=True)
         return log_responsibilities - log_prob, log_prob.squeeze(1)
 

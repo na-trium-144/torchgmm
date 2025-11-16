@@ -223,12 +223,13 @@ class GaussianMixture(
         """
         return self.model_.sample(num_datapoints)
 
-    def score(self, data: TensorLike) -> float:
+    def score(self, data: TensorLike, detach_params: bool = False) -> float:
         """
         Computes the average negative log-likelihood (NLL) of the provided datapoints.
 
         Args:
             data: The datapoints for which to evaluate the NLL.
+            detach_params: If True, the GMM parameters are detached from the computation graph.
 
         Returns
         -------
@@ -237,20 +238,15 @@ class GaussianMixture(
         Note:
             See :meth:`score_samples` to obtain NLL values for individual datapoints.
         """
-        loader = DataLoader(
-            dataset_from_tensors(data),
-            batch_size=self.batch_size or len(data),
-            collate_fn=collate_tensor,
-        )
-        result = self.trainer().test(GaussianMixtureLightningModule(self.model_), loader, verbose=False)
-        return result[0]["nll"]
+        return self.score_samples(data, detach_params=detach_params).mean().item()
 
-    def score_samples(self, data: TensorLike) -> torch.Tensor:
+    def score_samples(self, data: TensorLike, detach_params: bool = False) -> torch.Tensor:
         """
         Computes the negative log-likelihood (NLL) of each of the provided datapoints.
 
         Args:
             data: The datapoints for which to compute the NLL.
+            detach_params: If True, the GMM parameters are detached from the computation graph.
 
         Returns
         -------
@@ -266,10 +262,15 @@ class GaussianMixture(
             batch_size=self.batch_size or len(data),
             collate_fn=collate_tensor,
         )
-        result = self.trainer().predict(GaussianMixtureLightningModule(self.model_), loader)
-        return torch.stack([x[1] for x in cast(List[Tuple[torch.Tensor, torch.Tensor]], result)])
+        results = []
+        device = self.model_.means.device
+        for batch in loader:
+            batch = batch.to(device)
+            _, log_probs = self.model_(batch, detach_params=detach_params)
+            results.append(-log_probs)
+        return torch.cat(results)
 
-    def predict(self, data: TensorLike) -> torch.Tensor:
+    def predict(self, data: TensorLike, detach_params: bool = False) -> torch.Tensor:
         """
         Computes the most likely components for each of the provided datapoints.
 
@@ -289,14 +290,15 @@ class GaussianMixture(
             a subset of the predictions. If you want to aggregate predictions, make sure to gather
             the values returned from this method.
         """
-        return self.predict_proba(data).argmax(-1)
+        return self.predict_proba(data, detach_params=detach_params).argmax(-1)
 
-    def predict_proba(self, data: TensorLike) -> torch.Tensor:
+    def predict_proba(self, data: TensorLike, detach_params: bool = False) -> torch.Tensor:
         """
         Computes a distribution over the components for each of the provided datapoints.
 
         Args:
             data: The datapoints for which to compute the component assignment probabilities.
+            detach_params: If True, the GMM parameters are detached from the computation graph.
 
         Returns
         -------
@@ -315,5 +317,10 @@ class GaussianMixture(
             batch_size=self.batch_size or len(data),
             collate_fn=collate_tensor,
         )
-        result = self.trainer().predict(GaussianMixtureLightningModule(self.model_), loader)
-        return torch.cat([x[0] for x in cast(List[Tuple[torch.Tensor, torch.Tensor]], result)])
+        results = []
+        device = self.model_.means.device
+        for batch in loader:
+            batch = batch.to(device)
+            log_responsibilities, _ = self.model_(batch, detach_params=detach_params)
+            results.append(log_responsibilities.exp())
+        return torch.cat(results)
